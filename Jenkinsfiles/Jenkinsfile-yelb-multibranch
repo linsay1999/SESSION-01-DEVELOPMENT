@@ -1,0 +1,106 @@
+pipeline {
+agent any
+
+options {
+    buildDiscarder(logRotator(numToKeepStr: '20'))
+    disableConcurrentBuilds()
+    timeout (time: 60, unit: 'MINUTES')
+    timestamps()
+  }
+
+   environment {
+	DOCKERHUB_CREDENTIALS=credentials('aldockerhub')
+	}
+        
+    stages {
+     stage('SonarQube analysis') {
+            agent {
+                docker {
+                  image 'sonarsource/sonar-scanner-cli:4.7.0'
+                }
+               }
+               environment {
+        CI = 'true'
+        scannerHome='/opt/sonar-scanner'
+    }
+            steps{
+                withSonarQubeEnv('Sonar') {
+                    sh "${scannerHome}/bin/sonar-scanner"
+                }
+            }
+        }
+    
+    stage('Docker Login') {
+	steps {
+	sh 'echo $DOCKERHUB_CREDENTIALS_PSW | docker login -u $DOCKERHUB_CREDENTIALS_USR --password-stdin'
+			}
+		}
+        
+    stage('Yelb AppServer Build') {
+      
+     steps {
+         sh '''
+        cd yelb-appserver
+        docker rm -f linsay1999/yelb-app:appserver || true 
+        docker build -t linsay1999/yelb-app:appserver . 
+        cd -
+        '''
+                }
+            }
+    
+    stage('Yelb DB Build') {
+     steps {
+         sh '''
+        cd yelb-db
+        docker rm -f linsay1999/yelb-app:db || true 
+        docker build -t linsay1999/yelb-app:db . 
+        cd -
+        '''
+                }
+            }
+
+
+     stage('Yelb UI Build') {
+      
+     steps {
+         sh '''
+        cd yelb-ui
+        docker rm -f linsay1999/yelb:ui || true 
+        docker build -t linsay1999/yelb-ui . 
+        cd -
+        '''
+                }
+            }
+               
+    }
+
+
+   post {
+   
+   success {
+      slackSend (channel: '#aldevops', color: 'good', message: "SUCCESSFUL:  YELB-APP Branch name  <<${env.BRANCH_NAME}>>  Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]' (${env.BUILD_URL})")
+    }
+
+ 
+    unstable {
+      slackSend (channel: '#aldevops', color: 'warning', message: "UNSTABLE:  YELB-APP Branch name  <<${env.BRANCH_NAME}>>  Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]' (${env.BUILD_URL})")
+    }
+
+    failure {
+      slackSend (channel: '#aldevops', color: '#FF0000', message: "FAILURE:  YELB-APP Branch name  <<${env.BRANCH_NAME}>> Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]' (${env.BUILD_URL})")
+    }
+   
+    cleanup {
+      deleteDir()
+    }
+}
+
+
+
+
+}
+
+
+
+    
+ 
